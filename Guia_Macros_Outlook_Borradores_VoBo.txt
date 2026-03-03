@@ -1,0 +1,218 @@
+GUÍA DE IMPLEMENTACIÓN Y MANTENIMIENTO
+Macros Excel + Outlook (Borradores) con Firma HTML
+Autor: (documentación generada por ChatGPT)
+Fecha: 2026-03-03
+
+============================================================
+1) OBJETIVO
+============================================================
+Este libro de Excel genera 2 correos de Outlook en la carpeta BORRADORES:
+
+A) CorreoVoboQA
+   - Tipo: "VoBo QA - Resultados"
+   - Incluye destinatarios (To) y copia (CC) tomados de celdas.
+   - Inserta firma HTML desde archivo .htm local.
+   - Guarda el correo en BORRADORES, forzando el Store correcto.
+
+B) CorreoVoboUsuario
+   - Tipo: "VoBo Usuario - Solicitud"
+   - NO agrega destinatarios ni CC (según requerimiento vigente).
+   - Inserta firma HTML desde archivo .htm local.
+   - Guarda el correo en BORRADORES, forzando el Store correcto.
+
+Adicionalmente se incluye:
+- GuardarAmbosBorradores: genera los dos correos en una sola acción.
+- Wrappers "BTN_*": macros sin parámetros para asignarlas fácilmente a botones.
+
+============================================================
+2) UBICACIÓN CORRECTA DEL CÓDIGO (MUY IMPORTANTE)
+============================================================
+Para que las macros aparezcan en "Asignar macro" y funcionen correctamente:
+
+1) Abrir VBA (ALT + F11)
+2) Insertar > Módulo
+3) Pegar TODO el código en ese MÓDULO ESTÁNDAR (por ejemplo: Module1)
+
+NO pegar en:
+- ThisWorkbook
+- Módulos de hojas (Sheet1, Sheet2, etc.)
+
+Revisar también:
+- No debe existir "Option Private Module" al inicio del módulo, ya que oculta macros.
+
+============================================================
+3) BOTONES: QUÉ MACROS ASIGNAR
+============================================================
+Asignar botones a estas macros (sin parámetros):
+- BTN_CorreoVoboQA
+- BTN_CorreoVoboUsuario
+- BTN_GuardarAmbos
+
+Estas macros sólo llaman internamente a:
+- CorreoVoboQA(True)
+- CorreoVoboUsuario(True)
+- GuardarAmbosBorradores
+
+Razón:
+Excel a veces no muestra correctamente macros con parámetros en la lista,
+por eso se usan "wrappers" (BTN_*) sin parámetros.
+
+============================================================
+4) CELDAS / CAMPOS UTILIZADOS
+============================================================
+Las macros leen datos desde la hoja ACTIVA (ActiveSheet).
+
+Campos principales:
+- E3: Solicitud
+- F3: Release (puede ser lista desplegable; se lee como texto visible con .Text)
+- G3: URL del ambiente (se usa para link HTML "Abrir ambiente QA")
+- H3: URL del requerimiento (se usa para link HTML "Abrir requerimiento")
+- I3: Riesgos/Observaciones (texto libre)
+
+Destinatarios (solo para CorreoVoboQA):
+- J3: Destinatario (To)
+- K3: Copia (CC)
+
+NOTA:
+J3 y K3 pueden provenir de fórmulas (p. ej. FILTRAR). Por eso:
+- Se fuerza Application.Calculate antes de leer.
+- Se normalizan separadores (coma, saltos de línea) a ';' para Outlook.
+- Se limpian caracteres invisibles comunes (NBSP, tabs).
+
+============================================================
+5) LINKS EN EL CUERPO (HTML)
+============================================================
+Para evitar que Outlook muestre URLs enormes dentro del cuerpo, se usa:
+- BuildLink(url, textoCorto)
+Ejemplo:
+- "Abrir ambiente QA" -> <a href="URL">Abrir ambiente QA</a>
+
+Si la celda NO contiene algo que inicie con "http", BuildLink deja el texto plano.
+Esto evita links rotos o incorrectos.
+
+============================================================
+6) FIRMA HTML (CRÍTICO)
+============================================================
+La firma se inserta leyendo un archivo .htm local:
+
+Ruta configurada:
+C:\Users\jsoriano\AppData\Roaming\Microsoft\Signatures\Firma ARA Angel Soriano Banner (jsoriano@ara.com.mx).htm
+
+Cómo funciona:
+- GetSignatureHtml abre el archivo y lo concatena al final del HTMLBody.
+
+IMPORTANTE:
+- Si cambias de PC/usuario, esa ruta NO coincidirá.
+- Si renombraste la firma en Outlook, el archivo .htm también cambia de nombre.
+
+Mantenimiento recomendado:
+- Mantener la firma como HTML (archivo .htm).
+- Si la firma usa imágenes, normalmente se referencian con rutas relativas; puede funcionar,
+  pero en algunos casos Outlook requiere que la firma se inserte vía .Display.
+  En esta implementación se evita .Display por requerimiento, por lo que se usa lectura directa.
+
+============================================================
+7) GUARDADO EN BORRADORES (POR QUÉ SE HIZO ASÍ)
+============================================================
+Problema típico:
+- mail.Save a veces no "persiste" el borrador (EntryID queda vacío) o cae en otra carpeta/store.
+
+Solución aplicada (SaveDraftEnsured "hardened"):
+1) Asegura sesión MAPI:
+   - ns = OutlookApp.GetNamespace("MAPI")
+   - ns.Logon "", "", False, False
+2) Guarda el mail:
+   - mail.Save
+3) Verifica persistencia real:
+   - mail.EntryID debe existir
+4) Obtiene el store/carpeta reales:
+   - draftsFolder = storeObj.GetDefaultFolder(olFolderDrafts)
+5) Si no quedó en Borradores, mueve el item a esa carpeta:
+   - mail.Move(draftsFolder)
+6) Vuelve a guardar.
+
+Resultado:
+- El correo termina en BORRADORES del Store correcto con mayor consistencia.
+
+============================================================
+8) POR QUÉ A VECES LOS DESTINATARIOS SALEN EN ROJO
+============================================================
+En Outlook, color rojo en To/CC significa "no resuelto".
+En borradores generados sin .Display, Outlook puede no resolver automáticamente.
+
+Medida aplicada:
+- .Recipients.ResolveAll (se ejecuta en On Error Resume Next para NO romper el guardado)
+
+Aun así, si el correo es externo o hay políticas de seguridad, puede quedar sin resolver.
+Esto NO impide que el correo esté en borradores; sólo afecta cómo Outlook lo valida visualmente.
+
+============================================================
+9) CAMBIAR CELDAS / CAMBIAR UBICACIONES (MANTENIMIENTO)
+============================================================
+Si cambias la ubicación de datos, debes modificar estas líneas dentro de cada macro:
+
+- Solicitud: ws.Range("E3")
+- Release: ws.Range("F3")
+- Ambiente URL: ws.Range("G3")
+- Requerimiento URL: ws.Range("H3")
+- Observaciones: ws.Range("I3")
+- To (QA): ws.Range("J3")
+- CC (QA): ws.Range("K3")
+
+Ejemplo: si el Release ya no está en F3 sino en F5:
+- Cambiar ws.Range("F3") por ws.Range("F5") y mantener .Text
+
+Recomendación:
+- Si planeas cambiar seguido, considerar usar "Nombres definidos" en Excel
+  (por ejemplo: Nombre "Release" apuntando a la celda).
+  Así el VBA usa ws.Range("Release") y no depende de coordenadas fijas.
+
+============================================================
+10) ERRORES COMUNES Y CÓMO DIAGNOSTICAR
+============================================================
+A) "No aparece en Borradores"
+- Verifica que Outlook esté abierto y con sesión iniciada.
+- Revisa mensaje: "EntryID vacío".
+- Revisa que no haya add-ins/políticas que bloqueen automatización.
+
+B) "Subíndice fuera de intervalo"
+- Suele ser por referencias a hojas/tablas inexistentes.
+- En esta versión se usa ActiveSheet; si el botón está en otra hoja, puede leer otra hoja.
+  Solución: fijar hoja por nombre, por ejemplo:
+  Set ws = ThisWorkbook.Worksheets("NOMBRE_DE_HOJA")
+
+C) "No aparecen macros en 'Asignar macro'"
+- Código debe estar en Módulo estándar.
+- No usar Option Private Module.
+- Usar wrappers BTN_*.
+
+D) "Destinatarios no se agregan"
+- Verificar que J3/K3 no estén vacías.
+- Verificar que FILTRAR esté devolviendo un valor.
+- Verificar separadores: se normaliza a ';'.
+
+============================================================
+11) RECOMENDACIONES PARA FUTURAS MEJORAS
+============================================================
+- Validaciones antes de crear el correo:
+  * Si F3 está vacío: abortar y mostrar mensaje.
+  * Si CorreoVoboQA y J3 está vacío: abortar y mostrar mensaje.
+- Bitácora (log) en una hoja "LOG":
+  * Fecha/hora, asunto, resultado, EntryID.
+- Parámetro para elegir hoja objetivo (en lugar de ActiveSheet).
+- Plantillas de HTML en celdas o archivos externos para mantenimiento más fácil.
+
+============================================================
+12) RESUMEN DE MACROS (NOMBRES)
+============================================================
+Macros de negocio:
+- CorreoVoboQA(showMsg)
+- CorreoVoboUsuario(showMsg)
+- GuardarAmbosBorradores()
+
+Macros para botones (recomendado asignar estas):
+- BTN_CorreoVoboQA()
+- BTN_CorreoVoboUsuario()
+- BTN_GuardarAmbos()
+
+Fin del documento.
